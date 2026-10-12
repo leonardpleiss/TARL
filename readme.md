@@ -1,6 +1,6 @@
 # Target-Aligned RL Policies for Stable-Baselines3 (TARL)
 
-This repository contains the algorithms accompanying the paper **[Target-Aligned Reinforcement Learning](https://arxiv.org/abs/2603.06252)** by Leonard S. Pleiss, James Harrison, and Maximilian Schiffer. Designed as seamless, drop-in custom policies for the [Stable-Baselines3 (SB3)](https://www.google.com/search?q=https://github.com/DLR-RM/stable-baselines3) ecosystem, these implementations mitigate the fundamental stability-recency tradeoff in deep RL without requiring base hyperparameter tuning.
+This repository contains the algorithms accompanying the paper **[Target-Aligned Reinforcement Learning](https://arxiv.org/abs/2603.29501)** by Leonard S. Pleiss, James Harrison, and Maximilian Schiffer. Designed as seamless, drop-in custom policies for the [Stable-Baselines3 (SB3)](https://www.google.com/search?q=https://github.com/DLR-RM/stable-baselines3) ecosystem, these implementations mitigate the fundamental stability-recency tradeoff in deep RL without requiring base hyperparameter tuning.
 
 ### The Stability-Recency Tradeoff
 
