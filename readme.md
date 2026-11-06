@@ -1,105 +1,124 @@
-# Target-Aligned RL Policies for Stable-Baselines3 (TARL)
+# Target-Aligned Reinforcement Learning (TARL) for Stable-Baselines3
 
-This repository contains the algorithms accompanying the paper **[Target-Aligned Reinforcement Learning](https://arxiv.org/abs/2603.29501)** by Leonard S. Pleiss, James Harrison, and Maximilian Schiffer. Designed as seamless, drop-in custom policies for the [Stable-Baselines3 (SB3)](https://www.google.com/search?q=https://github.com/DLR-RM/stable-baselines3) ecosystem, these implementations mitigate the fundamental stability-recency tradeoff in deep RL without requiring base hyperparameter tuning.
+This repository contains the implementations accompanying the NeurIPS 2026 paper **[Target-Aligned Reinforcement Learning](https://arxiv.org/abs/2603.29501)** by Leonard S. Pleiss, James Harrison, and Maximilian Schiffer. TARL is provided as drop-in replacements for the DQN and SAC models of [Stable-Baselines3 (SB3)](https://github.com/DLR-RM/stable-baselines3) and requires no tuning of the base algorithm's hyperparameters.
 
-### The Stability-Recency Tradeoff
+### The stability-recency trade-off
 
-Traditional target networks stabilize training but introduce staleness, steering updates using outdated value predictions. TARL approaches this not by changing update frequencies, but by using the recent (online) network to validate the stable (target) network on a per-transition basis. By oversampling transitions and filtering for those where online and offline targets are **highly aligned**, TARL accelerates convergence and improves asymptotic performance.
-
----
-
-## 📦 Files & Architecture
-
-The release contains two primary Python modules, staying strictly faithful to the SB3 reference implementations:
-
-* `sac_custom.py` — **Target-Aligned Soft Actor-Critic (TA-SAC)**
-Implements TARL with aligned twin-critic updates and target-aware regularization.
-* `dqn_custom.py` — **Target-Aligned DQN and DDQN (TA-DQN / TA-DDQN)**
-Implements Target-Aligned DQN and DDQN with alignment-aware temporal-difference targets.
-
-Both implementations are fully compatible with SB3 training loops, callbacks, vector environments, and logging.
+Target networks stabilize bootstrapped learning, but their estimates lag behind the online network and can become stale. Slower target updates improve stability at the cost of recency, and faster updates risk reintroducing instability. TARL leaves the target update schedule untouched. Instead, it uses the recent (online) network to validate the stable (target) network on a per-transition basis, and focuses updates on transitions for which the two are well aligned.
 
 ---
 
-## 🚀 Usage
+## Files
 
-The policies can be used as direct replacements for standard SB3 models. All standard SB3 hyperparameters remain supported, alongside a few custom TARL arguments.
+- `dqn_custom.py` — `CustomDQN`: Target-Aligned DQN and DDQN (TA-DQN / TA-DDQN).
+- `sac_custom.py` — `CustomSAC`: Target-Aligned Soft Actor-Critic (TA-SAC).
 
-### Quickstart
+Both modules follow the SB3 reference implementations and are compatible with SB3 training loops, callbacks, vector environments, and logging.
+
+---
+
+## Installation
+
+```bash
+git clone https://github.com/leonardpleiss/TARL.git
+cd TARL
+pip install stable-baselines3
+```
+
+---
+
+## Usage
+
+Both models are direct replacements for the corresponding SB3 models. All standard SB3 arguments remain supported, alongside the TARL-specific arguments described below.
 
 ```python
 import gymnasium as gym
 from dqn_custom import CustomDQN
 from sac_custom import CustomSAC
 
-env = gym.make("CartPole-v1")
-
-# Initialize Target-Aligned DDQN
+# Target-Aligned DDQN
 model = CustomDQN(
     policy="MlpPolicy",
-    env=env,
-    target="DDQN",             # Computes offline targets using DDQN
-    oversampling_ratio=1.0,    # Samples 2x the batch size for alignment filtering
-    td_scale=False,            # Standard alignment-based oversampling
+    env=gym.make("CartPole-v1"),
+    target="DDQN",            # offline target: "DQN" or "DDQN"
+    oversampling_ratio=1.0,   # sample 2m candidates, keep the m best-aligned
+    td_scale=False,           # standard alignment-based oversampling
     verbose=1,
 )
+model.learn(total_timesteps=100_000)
 
-model.learn(total_timesteps=100000)
-
+# Target-Aligned SAC
+model = CustomSAC(
+    policy="MlpPolicy",
+    env=gym.make("Pendulum-v1"),
+    oversampling_ratio=1.0,
+    td_scale=False,
+    verbose=1,
+)
+model.learn(total_timesteps=50_000)
 ```
 
-### ⚙️ Configuration
+### Configuration
 
-TARL introduces three new arguments that control the target alignment behavior. You can pass these directly into the model initialization:
-
-* `target` *(str, CustomDQN only)*: Selects the algorithm for computing offline targets. Options are `"DQN"` or `"DDQN"`.
-* `oversampling_ratio` *(float)*: The margin b by which to enlarge the batch before filtering for alignment.
-* Set to `1.0` to sample m + 1.0m = 2m transitions (the default recommended setting used in the paper).
-* Higher values (e.g., `3.0`) yield strictly stronger alignment gains up to your hardware's memory limits.
-
-
-* `td_scale` *(bool)*: **[EXPERIMENTAL]** If `True`, the computed target alignment score is multiplied directly with the Temporal Difference (TD) error (loss scaling) rather than strictly being used as an inclusion filter for oversampling.
+- `target` *(str, `CustomDQN` only)*: The offline target. `"DQN"` uses the standard DQN target; `"DDQN"` uses the Double DQN target, where the online network selects the next action and the target network evaluates it.
+- `oversampling_ratio` *(float)*: The oversampling margin *b*, as a multiple of the batch size *m*. Each update samples *m + b* candidate transitions and keeps the *m* with the highest alignment (*b* is floored to an integer).
+  - `1.0` samples *2m* candidates. This is the setting used for all main experiments in the paper.
+  - In our ablations, larger values generally yielded stronger gains, at the cost of a wider forward pass. We recommend choosing *b* such that *m + b* matches the largest batch your hardware can evaluate in a single forward pass.
+- `td_scale` *(bool)*: **[EXPERIMENTAL]** If `True`, the alignment score scales the per-transition TD loss instead of being used for top-*m* selection. This loss-scaling variant is discussed as an alternative in Appendix A of the paper, but it was not used in the paper's experiments. Keep it `False` to reproduce the paper.
 
 ---
 
-## 🔬 How it Works: Alignment-Based Oversampling
+## How it works: alignment-based oversampling
 
-TARL acts as a dynamic filter. During the standard RL training loop, it modifies the batch sampling process:
+TARL modifies only the batch selection step of the standard training loop:
 
-1. **Sample:** Instead of sampling a batch of size m, TARL samples an oversized minibatch of m + b (controlled by `oversampling_ratio`).
-2. **Score:** It computes a normalized *Target Alignment Score* for each transition, measuring the directional and magnitude agreement between the offline target and the online network.
-3. **Filter:** It discards the b least-aligned transitions.
-4. **Update:** The network performs standard gradient descent on the final, highly-aligned minibatch of size m.
+1. **Sample** an oversized minibatch of *m + b* transitions from the replay buffer.
+2. **Score** each transition. TARL computes the online TD error $\delta$ (bootstrapping from the online network) and the offline TD error $\bar\delta$ (bootstrapping from the target network), and combines them into the target alignment score
 
-This naturally defers updates on misaligned transitions until subsequent parameter updates clarify the alignment signal.
+$$
+\mathcal{A} =
+\begin{cases}
+1 & \text{if } \delta \bar\delta > 0 \text{ and } |\delta| \geq |\bar\delta|, \\
+\dfrac{|\delta|}{|\delta| + |\delta - \bar\delta| + \varepsilon} & \text{otherwise.}
+\end{cases}
+$$
+
+   The score is 1 when the online network fully supports the update proposed by the target network: both point in the same direction, and the offline step is no larger than the online one. It decreases when the online network supports the offline update only partially (the offline target overshoots) or contradicts it (the two disagree on direction).
+
+3. **Select** the *m* transitions with the highest alignment.
+4. **Update** the network with the base algorithm's standard loss on these *m* transitions.
+
+TARL does **not** modify the TD targets: every selected transition is regressed onto the base algorithm's unchanged offline target. TARL only changes *which* transitions enter each update. Poorly aligned transitions are deferred rather than discarded, and under hard target updates, every target synchronization resets their alignment.
+
+**TA-SAC.** Alignment is computed separately for each of the twin critics, and each transition is assigned the minimum of the two scores. The entropy term $\alpha \log \pi(a' \mid s')$ is included in both the online and the offline targets, so that alignment is evaluated under the soft Bellman equation.
+
+### Computational overhead
+
+TARL requires a wider forward pass over the *m + b* candidates; the backward pass is performed on *m* transitions, as in the base algorithm. In the paper, this increased wall-clock time by 3.29% for TA-DDQN on Atari (*b = m*) and by 17.82% for TA-SAC, since vanilla SAC does not natively compute online next-state values.
 
 ---
 
-## 📊 Reproducibility & Intended Use
+## Reproducing the paper
 
-This code is released **for research purposes**. It is designed for:
-
-* Replicating the TARL baseline experiments on Atari, MinAtar, and MuJoCo.
-* Algorithmic ablations and benchmarking.
-* Extension into other off-policy methods (e.g., TD3).
+All main experiments use `oversampling_ratio=1.0` and the base algorithm's hyperparameters without further tuning. The hyperparameters for all experiments are listed in Appendix C of the paper; SAC hyperparameters follow [RL Baselines3 Zoo](https://github.com/DLR-RM/rl-baselines3-zoo). This repository contains the algorithm implementations; it does not include experiment scripts.
 
 ---
 
-## 📖 Citation
+## Citation
 
-If you use TARL or these custom policies in your academic work, please cite the accompanying paper:
+If you use TARL in your work, please cite:
 
 ```bibtex
 @inproceedings{pleiss2026target,
-  title={Target-Aligned Reinforcement Learning},
-  author={Pleiss, Leonard S. and Harrison, James and Schiffer, Maximilian},
-  booktitle={Advances in Neural Information Processing Systems},
-  volume={39},
-  year={2026}
+  title         = {Target-Aligned Reinforcement Learning},
+  author        = {Pleiss, Leonard S. and Harrison, James and Schiffer, Maximilian},
+  booktitle     = {Advances in Neural Information Processing Systems},
+  year          = {2026},
+  eprint        = {2603.29501},
+  archivePrefix = {arXiv}
 }
-
 ```
 
-## ⚖️ License
+## License
 
-This codebase is licensed under the MIT License, following the license structure of Stable-Baselines3.
+This codebase is licensed under the MIT License, following the license of Stable-Baselines3.
