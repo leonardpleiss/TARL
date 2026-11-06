@@ -90,10 +90,11 @@ This code is released **for research purposes**. It is designed for:
 If you use TARL or these custom policies in your academic work, please cite the accompanying paper:
 
 ```bibtex
-@article{pleiss2026target,
+@inproceedings{pleiss2026target,
   title={Target-Aligned Reinforcement Learning},
   author={Pleiss, Leonard S. and Harrison, James and Schiffer, Maximilian},
-  journal={arXiv preprint arXiv:2603.06252},
+  booktitle={Advances in Neural Information Processing Systems},
+  volume={39},
   year={2026}
 }
 
